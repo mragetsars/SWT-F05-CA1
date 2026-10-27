@@ -121,6 +121,17 @@ class SteeringControllerTest {
                         () -> controller.update(0.0, Double.POSITIVE_INFINITY)));
     }
 
+    @Test
+    void givenSteeringState_whenUpdateRejectsInvalidInput_thenPreservesAngleForNextCommand() {
+        SteeringController controller = new SteeringController();
+        moveToAngle(controller, 240.0, 2);
+
+        assertThrows(IllegalArgumentException.class, () -> controller.update(Double.NaN, 0.0));
+        double centeredAngle = controller.selfCenter();
+
+        assertEquals(60.0, centeredAngle);
+    }
+
     private void moveToAngle(SteeringController controller, double requestedAngleDegrees, int updates) {
         for (int update = 0; update < updates; update++) {
             controller.update(requestedAngleDegrees, 0.0);
