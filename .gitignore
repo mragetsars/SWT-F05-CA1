@@ -24,3 +24,6 @@ hs_err_pid*
 replay_pid*
 .idea/
 .DS_Store
+
+# Maven build output and generated quality reports
+/target/

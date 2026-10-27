@@ -1,5 +1,38 @@
 # F05-CA1: Autonomous Vehicle Project
 
+## Tests
+
+Run with Temurin JDK 26 and Maven:
+
+```bash
+mvn clean test
+```
+
+Tests use the `givenCondition_whenOperation_thenExpectedBehavior` naming convention.
+Parameterized invocations use fresh fixtures; no test depends on execution order.
+
+The five required parameter sources exercise distinct methods:
+
+| Source | Representative method |
+| --- | --- |
+| `ValueSource` | `AdaptiveCruise.safeDistanceFor` |
+| `CsvSource` | `AdaptiveCruise.update` |
+| `CsvFileSource` | `BrakeController.apply` |
+| `EnumSource` | `GearBox.changeTo` |
+| `MethodSource` | `SteeringController.update` |
+
+Optional coverage and mutation analysis:
+
+```bash
+mvn -Pquality clean verify
+mvn -Pquality test-compile org.pitest:pitest-maven:mutationCoverage
+```
+
+Reports are generated at `target/site/jacoco/index.html` and `target/pit-reports/index.html`.
+The quality profile is opt-in; normal test execution only needs the existing JUnit dependency.
+
+[گزارش فارسی بازبینی کیفیت تست‌ها و نتایج قبل/بعد](docs/TEST_REVIEW.fa.md)
+
 ## Architecture
 
 The project architecture is divided into three main packages:

@@ -3,10 +3,10 @@ package autopilot.core;
 import autopilot.exception.SensorFailureException;
 import autopilot.sensor.LaneSensor;
 import autopilot.sensor.ObstacleSensor;
-import autopilot.sensor.SensorSnapshot;
 import autopilot.sensor.SpeedSensor;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
@@ -121,41 +121,17 @@ class AutoDriverTest {
                 () -> assertEquals(0.0, centeredResult.steeringAngleDegrees()));
     }
 
-    @Test
-    void givenSpeedSensorFailure_whenTickInDrive_thenEntersSafeMode() {
-        assertSafeModeResult(
-                () -> {
-                    throw new SensorFailureException("Speed sensor failed");
-                },
-                () -> CLEAR_ROAD_DISTANCE_METERS,
-                () -> 0.0);
-    }
+    @ParameterizedTest(name = "Safe mode after {0} sensor failure")
+    @EnumSource(FailedSensor.class)
+    void givenSensorFailure_whenTickInDrive_thenEntersSafeMode(FailedSensor failedSensor) {
+        SpeedSensor speedSensor = failedSensor == FailedSensor.SPEED
+                ? AutoDriverTest::failedReading : () -> CRUISING_SPEED_KMH;
+        ObstacleSensor obstacleSensor = failedSensor == FailedSensor.OBSTACLE
+                ? AutoDriverTest::failedReading : () -> CLEAR_ROAD_DISTANCE_METERS;
+        LaneSensor laneSensor = failedSensor == FailedSensor.LANE
+                ? AutoDriverTest::failedReading : () -> 0.0;
 
-    @Test
-    void givenObstacleSensorFailure_whenTickInDrive_thenEntersSafeMode() {
-        assertSafeModeResult(
-                () -> CRUISING_SPEED_KMH,
-                () -> {
-                    throw new SensorFailureException("Obstacle sensor failed");
-                },
-                () -> 0.0);
-    }
-
-    @Test
-    void givenLaneSensorFailure_whenTickInDrive_thenEntersSafeMode() {
-        assertSafeModeResult(
-                () -> CRUISING_SPEED_KMH,
-                () -> CLEAR_ROAD_DISTANCE_METERS,
-                () -> {
-                    throw new SensorFailureException("Lane sensor failed");
-                });
-    }
-
-    @Test
-    void givenFailedSensorSnapshot_whenTickInDrive_thenEntersSafeMode() {
-        SensorSnapshot failedSnapshot = SensorSnapshot.failed("Sensor snapshot failed");
-
-        assertSafeModeResult(failedSnapshot, failedSnapshot, failedSnapshot);
+        assertSafeModeResult(speedSensor, obstacleSensor, laneSensor);
     }
 
     private AutoDriver createAutoDriver(SpeedSensor speedSensor,
@@ -177,5 +153,13 @@ class AutoDriverTest {
                 () -> assertEquals(AdaptiveCruise.Mode.BRAKE, result.cruiseMode()),
                 () -> assertFalse(result.warningActive()),
                 () -> assertTrue(result.safeMode()));
+    }
+
+    private static double failedReading() {
+        throw new SensorFailureException("Sensor unavailable");
+    }
+
+    private enum FailedSensor {
+        SPEED, OBSTACLE, LANE
     }
 }
