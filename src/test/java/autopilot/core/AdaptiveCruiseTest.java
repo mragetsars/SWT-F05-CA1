@@ -27,6 +27,19 @@ class AdaptiveCruiseTest {
         assertEquals(expectedDistanceMeters, cruise.safeDistanceFor(speedKmh), DELTA);
     }
 
+    @Test
+    void givenInvalidSpeed_whenSafeDistanceFor_thenRejectsInput() {
+        AdaptiveCruise cruise = new AdaptiveCruise(TARGET_SPEED_KMH);
+
+        assertAll(
+                () -> assertThrows(IllegalArgumentException.class, () -> cruise.safeDistanceFor(-0.1)),
+                () -> assertThrows(IllegalArgumentException.class, () -> cruise.safeDistanceFor(Double.NaN)),
+                () -> assertThrows(IllegalArgumentException.class,
+                        () -> cruise.safeDistanceFor(Double.POSITIVE_INFINITY)),
+                () -> assertThrows(IllegalArgumentException.class,
+                        () -> cruise.safeDistanceFor(Double.NEGATIVE_INFINITY)));
+    }
+
     @ParameterizedTest
     @CsvSource({
             "5.0, 0.0, 1.0, ACCELERATE, 5.0",
@@ -108,6 +121,17 @@ class AdaptiveCruiseTest {
         AdaptiveCruise cruise = new AdaptiveCruise(TARGET_SPEED_KMH);
 
         assertThrows(IllegalArgumentException.class, () -> cruise.update(speedKmh, distanceMeters));
+    }
+
+    @Test
+    void givenBrakingState_whenUpdateRejectsInvalidInput_thenKeepsBrakingStateForNextValidReading() {
+        AdaptiveCruise cruise = new AdaptiveCruise(TARGET_SPEED_KMH);
+        cruise.update(100.0, 49.0);
+
+        assertThrows(IllegalArgumentException.class, () -> cruise.update(Double.NaN, 55.0));
+        AdaptiveCruise.Decision nextDecision = cruise.update(100.0, 55.0);
+
+        assertDecision(AdaptiveCruise.Mode.BRAKE, 10.0, nextDecision);
     }
 
     private void assertDecision(AdaptiveCruise.Mode expectedMode,

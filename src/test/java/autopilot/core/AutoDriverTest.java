@@ -3,6 +3,7 @@ package autopilot.core;
 import autopilot.exception.SensorFailureException;
 import autopilot.sensor.LaneSensor;
 import autopilot.sensor.ObstacleSensor;
+import autopilot.sensor.SensorSnapshot;
 import autopilot.sensor.SpeedSensor;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -55,6 +56,71 @@ class AutoDriverTest {
                 result.steeringAngleDegrees());
     }
 
+    @ParameterizedTest
+    @ValueSource(doubles = {
+            LANE_CORRECTION_THRESHOLD_METERS,
+            -LANE_CORRECTION_THRESHOLD_METERS
+    })
+    void givenLaneDeviationAtThreshold_whenTickInDrive_thenDoesNotCorrectSteering(double laneOffsetMeters) {
+        AutoDriver autoDriver = createAutoDriver(
+                () -> CRUISING_SPEED_KMH,
+                () -> CLEAR_ROAD_DISTANCE_METERS,
+                () -> laneOffsetMeters);
+
+        AutoDriver.DriveResult result = autoDriver.tick(GearBox.Gear.D);
+
+        assertEquals(0.0, result.steeringAngleDegrees());
+    }
+
+    @Test
+    void givenObstacleInsideSafeDistance_whenTickInDrive_thenAppliesProportionalBraking() {
+        AutoDriver autoDriver = createAutoDriver(
+                () -> CRUISING_SPEED_KMH,
+                () -> 30.0,
+                () -> 0.0);
+
+        AutoDriver.DriveResult result = autoDriver.tick(GearBox.Gear.D);
+
+        assertAll(
+                () -> assertFalse(result.safeMode()),
+                () -> assertEquals(AdaptiveCruise.Mode.BRAKE, result.cruiseMode()),
+                () -> assertEquals(25.0, result.brakePressure()),
+                () -> assertFalse(result.warningActive()));
+    }
+
+    @Test
+    void givenObstacleAtEmergencyBoundary_whenTickInDrive_thenActivatesEmergencyBrakingAndWarning() {
+        AutoDriver autoDriver = createAutoDriver(
+                () -> CRUISING_SPEED_KMH,
+                () -> 20.0,
+                () -> 0.0);
+
+        AutoDriver.DriveResult result = autoDriver.tick(GearBox.Gear.D);
+
+        assertAll(
+                () -> assertFalse(result.safeMode()),
+                () -> assertEquals(AdaptiveCruise.Mode.EMERGENCY_BRAKE, result.cruiseMode()),
+                () -> assertEquals(100.0, result.brakePressure()),
+                () -> assertTrue(result.warningActive()));
+    }
+
+    @Test
+    void givenCorrectedLanePosition_whenNextTickIsCentered_thenReturnsSteeringToCenter() {
+        double[] laneOffsetMeters = {1.0};
+        AutoDriver autoDriver = createAutoDriver(
+                () -> CRUISING_SPEED_KMH,
+                () -> CLEAR_ROAD_DISTANCE_METERS,
+                () -> laneOffsetMeters[0]);
+
+        AutoDriver.DriveResult correctedResult = autoDriver.tick(GearBox.Gear.D);
+        laneOffsetMeters[0] = 0.0;
+        AutoDriver.DriveResult centeredResult = autoDriver.tick(GearBox.Gear.D);
+
+        assertAll(
+                () -> assertEquals(-LANE_CORRECTION_DEGREES, correctedResult.steeringAngleDegrees()),
+                () -> assertEquals(0.0, centeredResult.steeringAngleDegrees()));
+    }
+
     @Test
     void givenSpeedSensorFailure_whenTickInDrive_thenEntersSafeMode() {
         assertSafeModeResult(
@@ -73,6 +139,23 @@ class AutoDriverTest {
                     throw new SensorFailureException("Obstacle sensor failed");
                 },
                 () -> 0.0);
+    }
+
+    @Test
+    void givenLaneSensorFailure_whenTickInDrive_thenEntersSafeMode() {
+        assertSafeModeResult(
+                () -> CRUISING_SPEED_KMH,
+                () -> CLEAR_ROAD_DISTANCE_METERS,
+                () -> {
+                    throw new SensorFailureException("Lane sensor failed");
+                });
+    }
+
+    @Test
+    void givenFailedSensorSnapshot_whenTickInDrive_thenEntersSafeMode() {
+        SensorSnapshot failedSnapshot = SensorSnapshot.failed("Sensor snapshot failed");
+
+        assertSafeModeResult(failedSnapshot, failedSnapshot, failedSnapshot);
     }
 
     private AutoDriver createAutoDriver(SpeedSensor speedSensor,
