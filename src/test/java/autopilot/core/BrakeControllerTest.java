@@ -3,9 +3,11 @@ package autopilot.core;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvFileSource;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -27,11 +29,31 @@ class BrakeControllerTest {
 
         assertAll(
                 () -> assertEquals(expectedPressure, pressure),
-                () -> assertEquals(expectedPressure, controller.getPressure()));
+                () -> assertEquals(expectedPressure, controller.getPressure()),
+                () -> assertFalse(controller.isWarningActive()));
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "80.0, 31.0, 80.0",
+            "80.0001, 30.0, 80.0001",
+            "80.0001, 30.0001, 90.0",
+            "100.0, 31.0, 90.0",
+            "150.0, 31.0, 90.0"
+    })
+    void givenInputsAroundAbsThresholds_whenApply_thenActivatesAbsOnlyAboveBothThresholds(
+            double requestedPressure,
+            double speedKmh,
+            double expectedPressure) {
+        BrakeController controller = new BrakeController();
+
+        double pressure = controller.apply(requestedPressure, speedKmh, GearBox.Gear.D);
+
+        assertEquals(expectedPressure, pressure);
     }
 
     @Test
-    void givenHardBrakingAboveAbsThreshold_whenApplyRepeatedly_thenAlternatesAbsPulses() {
+    void givenHardBrakingAboveAbsThreshold_whenApplyRepeatedly_thenAlternatesAbsPulsesAndResetsAfterNormalBrake() {
         BrakeController controller = new BrakeController();
 
         double firstPulse = controller.apply(ABS_TRIGGER_PRESSURE, ABS_TRIGGER_SPEED_KMH, GearBox.Gear.D);
@@ -45,11 +67,13 @@ class BrakeControllerTest {
                 () -> assertEquals(ABS_HIGH_PULSE, pulseAfterReset));
     }
 
-    @Test
-    void givenDriveGear_whenEmergencyBrake_thenAppliesMaximumPressureAndActivatesWarning() {
+    @ParameterizedTest
+    @CsvSource({"R", "N", "D"})
+    void givenBrakingAllowedGear_whenEmergencyBrake_thenAppliesMaximumPressureAndActivatesWarning(
+            GearBox.Gear gear) {
         BrakeController controller = new BrakeController();
 
-        controller.emergencyBrake(GearBox.Gear.D);
+        controller.emergencyBrake(gear);
 
         assertAll(
                 () -> assertEquals(100.0, controller.getPressure()),
@@ -57,21 +81,66 @@ class BrakeControllerTest {
     }
 
     @Test
-    void givenParkGear_whenApply_thenRejectsBraking() {
+    void givenParkGear_whenApply_thenRejectsBrakingWithoutChangingState() {
         BrakeController controller = new BrakeController();
 
         assertThrows(IllegalStateException.class,
                 () -> controller.apply(10.0, 0.0, GearBox.Gear.P));
+
+        assertAll(
+                () -> assertEquals(0.0, controller.getPressure()),
+                () -> assertFalse(controller.isWarningActive()));
     }
 
     @Test
-    void givenInvalidPressureOrSpeed_whenApply_thenRejectsInput() {
+    void givenParkGear_whenEmergencyBrake_thenRejectsBrakingWithoutActivatingWarning() {
+        BrakeController controller = new BrakeController();
+
+        assertThrows(IllegalStateException.class, () -> controller.emergencyBrake(GearBox.Gear.P));
+
+        assertAll(
+                () -> assertEquals(0.0, controller.getPressure()),
+                () -> assertFalse(controller.isWarningActive()));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"-0.1", "NaN", "Infinity", "-Infinity"})
+    void givenInvalidRequestedPressure_whenApply_thenRejectsInput(double requestedPressure) {
+        BrakeController controller = new BrakeController();
+
+        assertThrows(IllegalArgumentException.class,
+                () -> controller.apply(requestedPressure, 0.0, GearBox.Gear.D));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"-0.1", "NaN", "Infinity", "-Infinity"})
+    void givenInvalidSpeed_whenApply_thenRejectsInput(double speedKmh) {
+        BrakeController controller = new BrakeController();
+
+        assertThrows(IllegalArgumentException.class,
+                () -> controller.apply(0.0, speedKmh, GearBox.Gear.D));
+    }
+
+    @Test
+    void givenNullGear_whenBrakingMethodsAreCalled_thenRejectsInput() {
         BrakeController controller = new BrakeController();
 
         assertAll(
-                () -> assertThrows(IllegalArgumentException.class,
-                        () -> controller.apply(-1.0, 0.0, GearBox.Gear.D)),
-                () -> assertThrows(IllegalArgumentException.class,
-                        () -> controller.apply(0.0, Double.POSITIVE_INFINITY, GearBox.Gear.D)));
+                () -> assertThrows(NullPointerException.class,
+                        () -> controller.apply(10.0, 0.0, null)),
+                () -> assertThrows(NullPointerException.class,
+                        () -> controller.emergencyBrake(null)));
+    }
+
+    @Test
+    void givenEmergencyBrakeAfterAbsCycle_whenHardBrakingResumes_thenRestartsWithHighAbsPulse() {
+        BrakeController controller = new BrakeController();
+        controller.apply(ABS_TRIGGER_PRESSURE, ABS_TRIGGER_SPEED_KMH, GearBox.Gear.D);
+        controller.apply(ABS_TRIGGER_PRESSURE, ABS_TRIGGER_SPEED_KMH, GearBox.Gear.D);
+        controller.emergencyBrake(GearBox.Gear.D);
+
+        double pressure = controller.apply(ABS_TRIGGER_PRESSURE, ABS_TRIGGER_SPEED_KMH, GearBox.Gear.D);
+
+        assertEquals(ABS_HIGH_PULSE, pressure);
     }
 }
