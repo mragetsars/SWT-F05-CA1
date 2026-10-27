@@ -15,7 +15,9 @@ class AdaptiveCruiseTest {
     @ParameterizedTest
     @CsvSource({
             "0.0, 0.0",
+            "0.2, 0.1",
             "5.0, 2.5",
+            "80.0, 40.0",
             "120.0, 60.0"
     })
     void givenValidSpeed_whenSafeDistanceFor_thenReturnsHalfTheSpeed(double speedKmh,
@@ -25,75 +27,87 @@ class AdaptiveCruiseTest {
         assertEquals(expectedDistanceMeters, cruise.safeDistanceFor(speedKmh), DELTA);
     }
 
-    @Test
-    void givenClearRoadBelowTargetSpeed_whenUpdate_thenAcceleratesByBoundedStep() {
+    @ParameterizedTest
+    @CsvSource({
+            "5.0, 0.0, 1.0, ACCELERATE, 5.0",
+            "5.0, 4.9, 3.0, ACCELERATE, 0.1",
+            "120.0, 115.0, 100.0, ACCELERATE, 5.0",
+            "120.0, 120.0, 100.0, HOLD, 0.0",
+            "120.0, 130.0, 100.0, HOLD, 0.0"
+    })
+    void givenClearRoad_whenUpdate_thenAcceleratesOnlyUpToTargetOrHolds(
+            double targetSpeedKmh,
+            double speedKmh,
+            double distanceMeters,
+            AdaptiveCruise.Mode expectedMode,
+            double expectedAmount) {
+        AdaptiveCruise cruise = new AdaptiveCruise(targetSpeedKmh);
+
+        AdaptiveCruise.Decision decision = cruise.update(speedKmh, distanceMeters);
+
+        assertDecision(expectedMode, expectedAmount, decision);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "0.0, 0.0, EMERGENCY_BRAKE, 100.0",
+            "100.0, 24.999, EMERGENCY_BRAKE, 100.0",
+            "100.0, 25.0, EMERGENCY_BRAKE, 100.0",
+            "100.0, 25.001, BRAKE, 49.998",
+            "100.0, 49.999, BRAKE, 0.002",
+            "100.0, 50.0, HOLD, 0.0",
+            "100.0, 50.001, ACCELERATE, 5.0"
+    })
+    void givenDistanceAtSafetyBoundaries_whenUpdate_thenChoosesSafeCruiseMode(
+            double speedKmh,
+            double distanceMeters,
+            AdaptiveCruise.Mode expectedMode,
+            double expectedAmount) {
         AdaptiveCruise cruise = new AdaptiveCruise(TARGET_SPEED_KMH);
 
-        AdaptiveCruise.Decision decision = cruise.update(80.0, 100.0);
+        AdaptiveCruise.Decision decision = cruise.update(speedKmh, distanceMeters);
 
-        assertDecision(AdaptiveCruise.Mode.ACCELERATE, 5.0, decision);
+        assertDecision(expectedMode, expectedAmount, decision);
     }
 
     @Test
-    void givenClearRoadAtTargetSpeed_whenUpdate_thenHoldsSpeed() {
-        AdaptiveCruise cruise = new AdaptiveCruise(80.0);
-
-        AdaptiveCruise.Decision decision = cruise.update(80.0, 100.0);
-
-        assertDecision(AdaptiveCruise.Mode.HOLD, 0.0, decision);
-    }
-
-    @Test
-    void givenDistanceAtSafeBoundary_whenUpdate_thenHoldsSpeed() {
+    void givenBrakingVehicle_whenObstacleStaysInsideReleaseDistance_thenKeepsBrakingUntilReleaseBoundary() {
         AdaptiveCruise cruise = new AdaptiveCruise(TARGET_SPEED_KMH);
 
-        AdaptiveCruise.Decision decision = cruise.update(50.0, 25.0);
-
-        assertDecision(AdaptiveCruise.Mode.HOLD, 0.0, decision);
-    }
-
-    @Test
-    void givenDistanceBetweenEmergencyAndSafeBoundaries_whenUpdate_thenBrakesProportionally() {
-        AdaptiveCruise cruise = new AdaptiveCruise(TARGET_SPEED_KMH);
-
-        AdaptiveCruise.Decision decision = cruise.update(50.0, 20.0);
-
-        assertDecision(AdaptiveCruise.Mode.BRAKE, 20.0, decision);
-    }
-
-    @Test
-    void givenDistanceAtEmergencyBoundary_whenUpdate_thenEmergencyBrakes() {
-        AdaptiveCruise cruise = new AdaptiveCruise(TARGET_SPEED_KMH);
-
-        AdaptiveCruise.Decision decision = cruise.update(100.0, 25.0);
-
-        assertDecision(AdaptiveCruise.Mode.EMERGENCY_BRAKE, 100.0, decision);
-    }
-
-    @Test
-    void givenBrakingVehicle_whenDistanceReachesReleaseBoundary_thenResumesAcceleration() {
-        AdaptiveCruise cruise = new AdaptiveCruise(TARGET_SPEED_KMH);
-        cruise.update(100.0, 25.0);
-
-        AdaptiveCruise.Decision hysteresisDecision = cruise.update(100.0, 55.0);
+        AdaptiveCruise.Decision initialBrake = cruise.update(100.0, 49.0);
+        AdaptiveCruise.Decision hysteresisBrake = cruise.update(100.0, 59.999);
         AdaptiveCruise.Decision releasedDecision = cruise.update(100.0, 60.0);
 
         assertAll(
-                () -> assertDecision(AdaptiveCruise.Mode.BRAKE, 10.0, hysteresisDecision),
+                () -> assertDecision(AdaptiveCruise.Mode.BRAKE, 2.0, initialBrake),
+                () -> assertDecision(AdaptiveCruise.Mode.BRAKE, 10.0, hysteresisBrake),
                 () -> assertDecision(AdaptiveCruise.Mode.ACCELERATE, 5.0, releasedDecision));
     }
 
     @Test
-    void givenInvalidSpeedOrDistance_whenDistanceMethodsAreCalled_thenRejectsInput() {
+    void givenReleasedBrakingVehicle_whenObstacleReturnsInsideSafeDistance_thenReappliesProportionalBrake() {
+        AdaptiveCruise cruise = new AdaptiveCruise(TARGET_SPEED_KMH);
+        cruise.update(100.0, 49.0);
+        cruise.update(100.0, 60.0);
+
+        AdaptiveCruise.Decision decision = cruise.update(100.0, 49.0);
+
+        assertDecision(AdaptiveCruise.Mode.BRAKE, 2.0, decision);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "NaN, 1.0",
+            "-1.0, 1.0",
+            "Infinity, 1.0",
+            "1.0, NaN",
+            "1.0, -1.0",
+            "1.0, Infinity"
+    })
+    void givenInvalidSpeedOrDistance_whenUpdate_thenRejectsInput(double speedKmh, double distanceMeters) {
         AdaptiveCruise cruise = new AdaptiveCruise(TARGET_SPEED_KMH);
 
-        assertAll(
-                () -> assertThrows(IllegalArgumentException.class,
-                        () -> cruise.safeDistanceFor(Double.NaN)),
-                () -> assertThrows(IllegalArgumentException.class,
-                        () -> cruise.update(-1.0, 1.0)),
-                () -> assertThrows(IllegalArgumentException.class,
-                        () -> cruise.update(1.0, -1.0)));
+        assertThrows(IllegalArgumentException.class, () -> cruise.update(speedKmh, distanceMeters));
     }
 
     private void assertDecision(AdaptiveCruise.Mode expectedMode,
