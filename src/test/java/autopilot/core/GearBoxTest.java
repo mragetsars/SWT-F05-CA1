@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -159,6 +160,28 @@ class GearBoxTest {
     }
 
     @Test
+    void givenNegativeOrInfiniteSensorReading_whenChangeToReverse_thenRejectsTransitionAndKeepsPark() {
+        assertAll(
+                () -> assertThrows(IllegalArgumentException.class, () -> changeToReverseAt(-0.1)),
+                () -> assertThrows(IllegalArgumentException.class,
+                        () -> changeToReverseAt(Double.POSITIVE_INFINITY)),
+                () -> assertThrows(IllegalArgumentException.class,
+                        () -> changeToReverseAt(Double.NEGATIVE_INFINITY)));
+
+        assertEquals(GearBox.Gear.P, gearBox.getCurrentGear());
+    }
+
+    @Test
+    void givenReverseGear_whenSensorReadingBecomesInvalid_thenRejectsTransitionAndKeepsReverse() {
+        moveTo(GearBox.Gear.R);
+        sensedSpeedKmh = Double.POSITIVE_INFINITY;
+
+        assertThrows(IllegalArgumentException.class, () -> gearBox.changeTo(GearBox.Gear.D));
+
+        assertEquals(GearBox.Gear.R, gearBox.getCurrentGear());
+    }
+
+    @Test
     void givenFailedSpeedSensor_whenChangeRequiresSpeed_thenPropagatesFailureAndKeepsGear() {
         gearBox.setSpeedSensor(() -> {
             throw new SensorFailureException("Speed sensor failed");
@@ -191,6 +214,11 @@ class GearBoxTest {
         assertThrows(IllegalGearChangeException.class, () -> gearBox.changeTo(targetGear));
 
         assertEquals(expectedGear, gearBox.getCurrentGear());
+    }
+
+    private void changeToReverseAt(double speedKmh) {
+        sensedSpeedKmh = speedKmh;
+        gearBox.changeTo(GearBox.Gear.R);
     }
 
     private void moveTo(GearBox.Gear gear) {

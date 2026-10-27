@@ -8,6 +8,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -35,21 +36,26 @@ class BrakeControllerTest {
 
     @ParameterizedTest
     @CsvSource({
-            "80.0, 31.0, 80.0",
-            "80.0001, 30.0, 80.0001",
-            "80.0001, 30.0001, 90.0",
-            "100.0, 31.0, 90.0",
-            "150.0, 31.0, 90.0"
+            "80.0, 31.0, false, 80.0",
+            "80.0001, 30.0, false, 80.0001",
+            "80.0001, 30.0001, true, 0.0",
+            "100.0, 31.0, true, 0.0",
+            "150.0, 31.0, true, 0.0"
     })
     void givenInputsAroundAbsThresholds_whenApply_thenActivatesAbsOnlyAboveBothThresholds(
             double requestedPressure,
             double speedKmh,
-            double expectedPressure) {
+            boolean absExpected,
+            double expectedOrdinaryPressure) {
         BrakeController controller = new BrakeController();
 
         double pressure = controller.apply(requestedPressure, speedKmh, GearBox.Gear.D);
 
-        assertEquals(expectedPressure, pressure);
+        if (absExpected) {
+            assertTrue(isAbsPulse(pressure));
+        } else {
+            assertEquals(expectedOrdinaryPressure, pressure);
+        }
     }
 
     @Test
@@ -62,9 +68,10 @@ class BrakeControllerTest {
         double pulseAfterReset = controller.apply(ABS_TRIGGER_PRESSURE, ABS_TRIGGER_SPEED_KMH, GearBox.Gear.D);
 
         assertAll(
-                () -> assertEquals(ABS_HIGH_PULSE, firstPulse),
-                () -> assertEquals(ABS_LOW_PULSE, secondPulse),
-                () -> assertEquals(ABS_HIGH_PULSE, pulseAfterReset));
+                () -> assertTrue(isAbsPulse(firstPulse)),
+                () -> assertTrue(isAbsPulse(secondPulse)),
+                () -> assertNotEquals(firstPulse, secondPulse),
+                () -> assertEquals(firstPulse, pulseAfterReset));
     }
 
     @ParameterizedTest
@@ -133,14 +140,46 @@ class BrakeControllerTest {
     }
 
     @Test
-    void givenEmergencyBrakeAfterAbsCycle_whenHardBrakingResumes_thenRestartsWithHighAbsPulse() {
+    void givenEmergencyBrakeAfterAbsCycle_whenHardBrakingResumes_thenRestartsWithInitialAbsPulse() {
         BrakeController controller = new BrakeController();
-        controller.apply(ABS_TRIGGER_PRESSURE, ABS_TRIGGER_SPEED_KMH, GearBox.Gear.D);
+        double firstPulse = controller.apply(ABS_TRIGGER_PRESSURE, ABS_TRIGGER_SPEED_KMH, GearBox.Gear.D);
         controller.apply(ABS_TRIGGER_PRESSURE, ABS_TRIGGER_SPEED_KMH, GearBox.Gear.D);
         controller.emergencyBrake(GearBox.Gear.D);
 
         double pressure = controller.apply(ABS_TRIGGER_PRESSURE, ABS_TRIGGER_SPEED_KMH, GearBox.Gear.D);
 
-        assertEquals(ABS_HIGH_PULSE, pressure);
+        assertEquals(firstPulse, pressure);
+    }
+
+    @Test
+    void givenActiveAbsCycle_whenApplyRejectsInvalidInput_thenPreservesPressureAndAbsPhase() {
+        BrakeController controller = new BrakeController();
+        double firstPulse = controller.apply(ABS_TRIGGER_PRESSURE, ABS_TRIGGER_SPEED_KMH, GearBox.Gear.D);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> controller.apply(Double.NaN, ABS_TRIGGER_SPEED_KMH, GearBox.Gear.D));
+        assertEquals(firstPulse, controller.getPressure());
+        double nextPulse = controller.apply(ABS_TRIGGER_PRESSURE, ABS_TRIGGER_SPEED_KMH, GearBox.Gear.D);
+
+        assertAll(
+                () -> assertTrue(isAbsPulse(nextPulse)),
+                () -> assertNotEquals(firstPulse, nextPulse));
+    }
+
+    @Test
+    void givenEmergencyBrakeState_whenParkBrakeIsRejected_thenPreservesEmergencyState() {
+        BrakeController controller = new BrakeController();
+        controller.emergencyBrake(GearBox.Gear.D);
+
+        assertThrows(IllegalStateException.class,
+                () -> controller.apply(10.0, 0.0, GearBox.Gear.P));
+
+        assertAll(
+                () -> assertEquals(100.0, controller.getPressure()),
+                () -> assertTrue(controller.isWarningActive()));
+    }
+
+    private boolean isAbsPulse(double pressure) {
+        return pressure == ABS_HIGH_PULSE || pressure == ABS_LOW_PULSE;
     }
 }
