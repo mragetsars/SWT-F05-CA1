@@ -5,7 +5,9 @@ import autopilot.exception.SensorFailureException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -22,160 +24,67 @@ class GearBoxTest {
         gearBox = new GearBox(() -> sensedSpeedKmh);
     }
 
-    @ParameterizedTest
+    @ParameterizedTest(name = "Already in {0}; sensor must not be read")
     @EnumSource(GearBox.Gear.class)
-    void givenGearboxAlreadyInAGear_whenChangeToSameGear_thenLeavesGearUnchanged(GearBox.Gear gear) {
+    void givenGearboxAlreadyInAGear_whenChangeToSameGear_thenLeavesGearUnchangedWithoutReadingSensor(
+            GearBox.Gear gear) {
         moveTo(gear);
+        gearBox.setSpeedSensor(() -> {
+            throw new AssertionError("A no-op shift must not read the speed sensor");
+        });
 
         gearBox.changeTo(gear);
 
         assertEquals(gear, gearBox.getCurrentGear());
     }
 
-    @Test
-    void givenStoppedVehicle_whenChangingThroughLegalSequence_thenReachesDrive() {
-        gearBox.changeTo(GearBox.Gear.R);
-        gearBox.changeTo(GearBox.Gear.N);
-        gearBox.changeTo(GearBox.Gear.D);
+    @ParameterizedTest(name = "Allow {0} -> {1} at {2} km/h")
+    @CsvSource({
+            "P, R, 4.999",
+            "R, D, 0.0",
+            "D, R, 0.0",
+            "R, N, 30.0",
+            "N, D, 30.0"
+    })
+    void givenAllowedGearAndSpeed_whenChangeTo_thenSelectsRequestedGear(
+            GearBox.Gear initialGear, GearBox.Gear targetGear, double speedKmh) {
+        moveTo(initialGear);
+        sensedSpeedKmh = speedKmh;
 
-        assertEquals(GearBox.Gear.D, gearBox.getCurrentGear());
+        gearBox.changeTo(targetGear);
+
+        assertEquals(targetGear, gearBox.getCurrentGear());
     }
 
-    @Test
-    void givenVehicleBelowReverseEntryLimit_whenChangeToReverse_thenAllowsTransition() {
-        sensedSpeedKmh = 4.999;
+    @ParameterizedTest(name = "Reject {0} -> {1} at {2} km/h")
+    @CsvSource({
+            "P, R, 5.0",
+            "P, R, 5.001",
+            "R, D, 0.001",
+            "D, R, 0.001",
+            "P, N, 0.0",
+            "P, D, 0.0",
+            "R, P, 0.0",
+            "N, P, 0.0",
+            "N, R, 0.0",
+            "D, N, 0.0",
+            "D, P, 0.0"
+    })
+    void givenForbiddenGearOrSpeed_whenChangeTo_thenRejectsTransitionAndKeepsGear(
+            GearBox.Gear initialGear, GearBox.Gear targetGear, double speedKmh) {
+        moveTo(initialGear);
+        sensedSpeedKmh = speedKmh;
 
-        gearBox.changeTo(GearBox.Gear.R);
+        assertThrows(IllegalGearChangeException.class, () -> gearBox.changeTo(targetGear));
 
-        assertEquals(GearBox.Gear.R, gearBox.getCurrentGear());
+        assertEquals(initialGear, gearBox.getCurrentGear());
     }
 
-    @Test
-    void givenVehicleAtReverseEntryLimit_whenChangeToReverse_thenRejectsTransition() {
-        sensedSpeedKmh = 5.0;
-
-        assertThrows(IllegalGearChangeException.class, () -> gearBox.changeTo(GearBox.Gear.R));
-
-        assertEquals(GearBox.Gear.P, gearBox.getCurrentGear());
-    }
-
-    @Test
-    void givenVehicleAboveReverseEntryLimit_whenChangeToReverse_thenRejectsTransition() {
-        sensedSpeedKmh = 5.001;
-
-        assertThrows(IllegalGearChangeException.class, () -> gearBox.changeTo(GearBox.Gear.R));
-
-        assertEquals(GearBox.Gear.P, gearBox.getCurrentGear());
-    }
-
-    @Test
-    void givenStoppedVehicleInReverse_whenChangeToDrive_thenAllowsTransition() {
-        gearBox.changeTo(GearBox.Gear.R);
-
-        gearBox.changeTo(GearBox.Gear.D);
-
-        assertEquals(GearBox.Gear.D, gearBox.getCurrentGear());
-    }
-
-    @Test
-    void givenMovingVehicleInReverse_whenChangeToDrive_thenRejectsTransitionAndKeepsReverse() {
-        gearBox.changeTo(GearBox.Gear.R);
-        sensedSpeedKmh = 0.001;
-
-        assertThrows(IllegalGearChangeException.class, () -> gearBox.changeTo(GearBox.Gear.D));
-
-        assertEquals(GearBox.Gear.R, gearBox.getCurrentGear());
-    }
-
-    @Test
-    void givenStoppedVehicleInDrive_whenChangeToReverse_thenAllowsTransition() {
-        moveTo(GearBox.Gear.D);
-
-        gearBox.changeTo(GearBox.Gear.R);
-
-        assertEquals(GearBox.Gear.R, gearBox.getCurrentGear());
-    }
-
-    @Test
-    void givenMovingVehicleInDrive_whenChangeToReverse_thenRejectsTransitionAndKeepsDrive() {
-        moveTo(GearBox.Gear.D);
-        sensedSpeedKmh = 0.001;
-
-        assertThrows(IllegalGearChangeException.class, () -> gearBox.changeTo(GearBox.Gear.R));
-
-        assertEquals(GearBox.Gear.D, gearBox.getCurrentGear());
-    }
-
-    @Test
-    void givenParkGear_whenChangeToNeutral_thenRejectsSkippedTransition() {
-        assertRejectedTransition(GearBox.Gear.N, GearBox.Gear.P);
-    }
-
-    @Test
-    void givenParkGear_whenChangeToDrive_thenRejectsSkippedTransition() {
-        assertRejectedTransition(GearBox.Gear.D, GearBox.Gear.P);
-    }
-
-    @Test
-    void givenReverseGear_whenChangeToPark_thenRejectsSkippedTransition() {
+    @ParameterizedTest(name = "Reject invalid speed {0} without changing reverse gear")
+    @ValueSource(doubles = {-0.1, Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY})
+    void givenInvalidSensorReading_whenChangeToDrive_thenRejectsTransitionAndKeepsReverse(double speedKmh) {
         moveTo(GearBox.Gear.R);
-
-        assertRejectedTransition(GearBox.Gear.P, GearBox.Gear.R);
-    }
-
-    @Test
-    void givenNeutralGear_whenChangeToPark_thenRejectsSkippedTransition() {
-        moveTo(GearBox.Gear.N);
-
-        assertRejectedTransition(GearBox.Gear.P, GearBox.Gear.N);
-    }
-
-    @Test
-    void givenNeutralGear_whenChangeToReverse_thenRejectsSkippedTransition() {
-        moveTo(GearBox.Gear.N);
-
-        assertRejectedTransition(GearBox.Gear.R, GearBox.Gear.N);
-    }
-
-    @Test
-    void givenDriveGear_whenChangeToNeutral_thenRejectsSkippedTransition() {
-        moveTo(GearBox.Gear.D);
-
-        assertRejectedTransition(GearBox.Gear.N, GearBox.Gear.D);
-    }
-
-    @Test
-    void givenDriveGear_whenChangeToPark_thenRejectsSkippedTransition() {
-        moveTo(GearBox.Gear.D);
-
-        assertRejectedTransition(GearBox.Gear.P, GearBox.Gear.D);
-    }
-
-    @Test
-    void givenInvalidSensorReading_whenChangeToReverse_thenRejectsTransitionAndKeepsPark() {
-        sensedSpeedKmh = Double.NaN;
-
-        assertThrows(IllegalArgumentException.class, () -> gearBox.changeTo(GearBox.Gear.R));
-
-        assertEquals(GearBox.Gear.P, gearBox.getCurrentGear());
-    }
-
-    @Test
-    void givenNegativeOrInfiniteSensorReading_whenChangeToReverse_thenRejectsTransitionAndKeepsPark() {
-        assertAll(
-                () -> assertThrows(IllegalArgumentException.class, () -> changeToReverseAt(-0.1)),
-                () -> assertThrows(IllegalArgumentException.class,
-                        () -> changeToReverseAt(Double.POSITIVE_INFINITY)),
-                () -> assertThrows(IllegalArgumentException.class,
-                        () -> changeToReverseAt(Double.NEGATIVE_INFINITY)));
-
-        assertEquals(GearBox.Gear.P, gearBox.getCurrentGear());
-    }
-
-    @Test
-    void givenReverseGear_whenSensorReadingBecomesInvalid_thenRejectsTransitionAndKeepsReverse() {
-        moveTo(GearBox.Gear.R);
-        sensedSpeedKmh = Double.POSITIVE_INFINITY;
+        sensedSpeedKmh = speedKmh;
 
         assertThrows(IllegalArgumentException.class, () -> gearBox.changeTo(GearBox.Gear.D));
 
@@ -199,35 +108,16 @@ class GearBoxTest {
     }
 
     @Test
-    void givenFailedSpeedSensor_whenChangeToCurrentGear_thenDoesNotReadSensor() {
-        gearBox.setSpeedSensor(() -> {
-            throw new SensorFailureException("Speed sensor failed");
-        });
+    void givenNullTargetGear_whenChangeTo_thenRejectsInputWithoutResettingExistingGear() {
+        moveTo(GearBox.Gear.D);
 
-        gearBox.changeTo(GearBox.Gear.P);
-
-        assertEquals(GearBox.Gear.P, gearBox.getCurrentGear());
-    }
-
-    @Test
-    void givenNullTargetGear_whenChangeTo_thenRejectsInput() {
         assertThrows(NullPointerException.class, () -> gearBox.changeTo(null));
 
-        assertEquals(GearBox.Gear.P, gearBox.getCurrentGear());
-    }
-
-    private void assertRejectedTransition(GearBox.Gear targetGear, GearBox.Gear expectedGear) {
-        assertThrows(IllegalGearChangeException.class, () -> gearBox.changeTo(targetGear));
-
-        assertEquals(expectedGear, gearBox.getCurrentGear());
-    }
-
-    private void changeToReverseAt(double speedKmh) {
-        sensedSpeedKmh = speedKmh;
-        gearBox.changeTo(GearBox.Gear.R);
+        assertEquals(GearBox.Gear.D, gearBox.getCurrentGear());
     }
 
     private void moveTo(GearBox.Gear gear) {
+        // حالت شروع را با انتقال‌های عمومی و مجاز در سرعت صفر می‌سازیم.
         switch (gear) {
             case P -> {
                 return;
