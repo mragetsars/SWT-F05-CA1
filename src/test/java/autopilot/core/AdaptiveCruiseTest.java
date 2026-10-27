@@ -46,7 +46,8 @@ class AdaptiveCruiseTest {
             "5.0, 4.9, 3.0, ACCELERATE, 0.1",
             "120.0, 115.0, 100.0, ACCELERATE, 5.0",
             "120.0, 120.0, 100.0, HOLD, 0.0",
-            "120.0, 130.0, 100.0, HOLD, 0.0"
+            "120.0, 130.0, 100.0, HOLD, 0.0",
+            "0.0, 0.0, 1.0, HOLD, 0.0"
     })
     void givenClearRoad_whenUpdate_thenAcceleratesOnlyUpToTargetOrHolds(
             double targetSpeedKmh,
@@ -106,6 +107,27 @@ class AdaptiveCruiseTest {
         AdaptiveCruise.Decision decision = cruise.update(100.0, 49.0);
 
         assertDecision(AdaptiveCruise.Mode.BRAKE, 2.0, decision);
+    }
+
+    @Test
+    void givenEmergencyBrakingVehicle_whenDistanceReachesSafeBoundary_thenKeepsHysteresisBrake() {
+        AdaptiveCruise cruise = new AdaptiveCruise(TARGET_SPEED_KMH);
+        cruise.update(100.0, 25.0);
+
+        AdaptiveCruise.Decision decision = cruise.update(100.0, 50.0);
+
+        assertDecision(AdaptiveCruise.Mode.BRAKE, 10.0, decision);
+    }
+
+    @Test
+    void givenReleasedBrakingVehicle_whenDistanceReturnsToSafeBoundary_thenHoldsSpeed() {
+        AdaptiveCruise cruise = new AdaptiveCruise(TARGET_SPEED_KMH);
+        cruise.update(100.0, 40.0);
+        cruise.update(100.0, 60.0);
+
+        AdaptiveCruise.Decision decision = cruise.update(100.0, 50.0);
+
+        assertDecision(AdaptiveCruise.Mode.HOLD, 0.0, decision);
     }
 
     @ParameterizedTest

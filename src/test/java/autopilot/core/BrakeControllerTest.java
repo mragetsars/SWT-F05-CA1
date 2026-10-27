@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvFileSource;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -111,6 +112,16 @@ class BrakeControllerTest {
     }
 
     @ParameterizedTest
+    @EnumSource(value = GearBox.Gear.class, names = "P", mode = EnumSource.Mode.EXCLUDE)
+    void givenNonParkGear_whenApply_thenAllowsOrdinaryBraking(GearBox.Gear gear) {
+        BrakeController controller = new BrakeController();
+
+        double pressure = controller.apply(40.0, 0.0, gear);
+
+        assertEquals(40.0, pressure);
+    }
+
+    @ParameterizedTest
     @CsvSource({"-0.1", "NaN", "Infinity", "-Infinity"})
     void givenInvalidRequestedPressure_whenApply_thenRejectsInput(double requestedPressure) {
         BrakeController controller = new BrakeController();
@@ -177,6 +188,20 @@ class BrakeControllerTest {
         assertAll(
                 () -> assertEquals(100.0, controller.getPressure()),
                 () -> assertTrue(controller.isWarningActive()));
+    }
+
+    @Test
+    void givenActiveAbsCycle_whenParkBrakeIsRejected_thenPreservesAbsPhase() {
+        BrakeController controller = new BrakeController();
+        double firstPulse = controller.apply(ABS_TRIGGER_PRESSURE, ABS_TRIGGER_SPEED_KMH, GearBox.Gear.D);
+
+        assertThrows(IllegalStateException.class,
+                () -> controller.apply(10.0, 0.0, GearBox.Gear.P));
+        double nextPulse = controller.apply(ABS_TRIGGER_PRESSURE, ABS_TRIGGER_SPEED_KMH, GearBox.Gear.D);
+
+        assertAll(
+                () -> assertTrue(isAbsPulse(nextPulse)),
+                () -> assertNotEquals(firstPulse, nextPulse));
     }
 
     private boolean isAbsPulse(double pressure) {
