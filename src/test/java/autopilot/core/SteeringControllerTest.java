@@ -147,6 +147,12 @@ class SteeringControllerTest {
                 Arguments.of(450.0, 120.001, 2, 90.0),
                 Arguments.of(-450.0, 120.0, 8, -450.0),
                 Arguments.of(-450.0, 120.001, 2, -90.0),
-                Arguments.of(60.0, 150.0, 1, 60.0));
+                Arguments.of(60.0, 150.0, 1, 60.0),
+                Arguments.of(60.001, 0.0, 1, 60.0),
+                Arguments.of(-60.001, 0.0, 1, -60.0),
+                Arguments.of(91.0, 120.001, 2, 90.0),
+                Arguments.of(89.0, 120.001, 2, 89.0),
+                Arguments.of(-91.0, 120.001, 2, -90.0),
+                Arguments.of(-89.0, 120.001, 2, -89.0));
     }
 }

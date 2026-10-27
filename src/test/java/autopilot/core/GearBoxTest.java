@@ -9,6 +9,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class GearBoxTest {
@@ -183,13 +184,18 @@ class GearBoxTest {
 
     @Test
     void givenFailedSpeedSensor_whenChangeRequiresSpeed_thenPropagatesFailureAndKeepsGear() {
+        moveTo(GearBox.Gear.R);
+        SensorFailureException expectedFailure = new SensorFailureException("Speed sensor failed");
         gearBox.setSpeedSensor(() -> {
-            throw new SensorFailureException("Speed sensor failed");
+            throw expectedFailure;
         });
 
-        assertThrows(SensorFailureException.class, () -> gearBox.changeTo(GearBox.Gear.R));
+        SensorFailureException actualFailure = assertThrows(
+                SensorFailureException.class, () -> gearBox.changeTo(GearBox.Gear.D));
 
-        assertEquals(GearBox.Gear.P, gearBox.getCurrentGear());
+        assertAll(
+                () -> assertSame(expectedFailure, actualFailure),
+                () -> assertEquals(GearBox.Gear.R, gearBox.getCurrentGear()));
     }
 
     @Test
