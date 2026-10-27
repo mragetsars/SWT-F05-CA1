@@ -1,5 +1,7 @@
 package autopilot.core;
 
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import autopilot.exception.IllegalGearChangeException;
 import autopilot.exception.SensorFailureException;
 import org.junit.jupiter.api.BeforeEach;
@@ -14,6 +16,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+@DisplayName("Gearbox - transitions and state preservation")
+@Tag("state")
 class GearBoxTest {
     private double sensedSpeedKmh;
     private GearBox gearBox;
@@ -24,7 +28,8 @@ class GearBoxTest {
         gearBox = new GearBox(() -> sensedSpeedKmh);
     }
 
-    @ParameterizedTest(name = "Already in {0}; sensor must not be read")
+    @DisplayName("Selecting the current gear preserves it without reading the sensor")
+    @ParameterizedTest(name = "{displayName} [{index}]: Already in {0}; sensor must not be read")
     @EnumSource(GearBox.Gear.class)
     void givenGearboxAlreadyInAGear_whenChangeToSameGear_thenLeavesGearUnchangedWithoutReadingSensor(
             GearBox.Gear gear) {
@@ -38,7 +43,8 @@ class GearBoxTest {
         assertEquals(gear, gearBox.getCurrentGear());
     }
 
-    @ParameterizedTest(name = "Allow {0} -> {1} at {2} km/h")
+    @DisplayName("Allowed shifts select the requested gear")
+    @ParameterizedTest(name = "{displayName} [{index}]: Allow {0} -> {1} at {2} km/h")
     @CsvSource({
             "P, R, 4.999",
             "R, D, 0.0",
@@ -56,7 +62,9 @@ class GearBoxTest {
         assertEquals(targetGear, gearBox.getCurrentGear());
     }
 
-    @ParameterizedTest(name = "Reject {0} -> {1} at {2} km/h")
+    @DisplayName("Forbidden shifts preserve the current gear")
+    @Tag("validation")
+    @ParameterizedTest(name = "{displayName} [{index}]: Reject {0} -> {1} at {2} km/h")
     @CsvSource({
             "P, R, 5.0",
             "P, R, 5.001",
@@ -80,7 +88,9 @@ class GearBoxTest {
         assertEquals(initialGear, gearBox.getCurrentGear());
     }
 
-    @ParameterizedTest(name = "Reject invalid speed {0} without changing reverse gear")
+    @DisplayName("Invalid speed readings preserve reverse gear")
+    @Tag("validation")
+    @ParameterizedTest(name = "{displayName} [{index}]: Reject invalid speed {0} without changing reverse gear")
     @ValueSource(doubles = {-0.1, Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY})
     void givenInvalidSensorReading_whenChangeToDrive_thenRejectsTransitionAndKeepsReverse(double speedKmh) {
         moveTo(GearBox.Gear.R);
@@ -91,6 +101,7 @@ class GearBoxTest {
         assertEquals(GearBox.Gear.R, gearBox.getCurrentGear());
     }
 
+    @DisplayName("Speed-sensor failures propagate without changing gear")
     @Test
     void givenFailedSpeedSensor_whenChangeRequiresSpeed_thenPropagatesFailureAndKeepsGear() {
         moveTo(GearBox.Gear.R);
@@ -107,6 +118,8 @@ class GearBoxTest {
                 () -> assertEquals(GearBox.Gear.R, gearBox.getCurrentGear()));
     }
 
+    @DisplayName("A null target gear is rejected without resetting the current gear")
+    @Tag("validation")
     @Test
     void givenNullTargetGear_whenChangeTo_thenRejectsInputWithoutResettingExistingGear() {
         moveTo(GearBox.Gear.D);
@@ -117,7 +130,6 @@ class GearBoxTest {
     }
 
     private void moveTo(GearBox.Gear gear) {
-        // حالت شروع را با انتقال‌های عمومی و مجاز در سرعت صفر می‌سازیم.
         switch (gear) {
             case P -> {
                 return;

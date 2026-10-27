@@ -1,5 +1,7 @@
 package autopilot.core;
 
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import autopilot.exception.SensorFailureException;
 import autopilot.sensor.LaneSensor;
 import autopilot.sensor.ObstacleSensor;
@@ -14,6 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@DisplayName("Auto driver - coordination and safe mode")
 class AutoDriverTest {
     private static final double CRUISING_SPEED_KMH = 80.0;
     private static final double CLEAR_ROAD_DISTANCE_METERS = 100.0;
@@ -22,6 +25,7 @@ class AutoDriverTest {
     private static final double LANE_CORRECTION_DEGREES = 45.0;
     private static final double SAFE_MODE_BRAKE_PRESSURE = 30.0;
 
+    @DisplayName("A clear road and centered lane produce HOLD without braking")
     @Test
     void givenClearRoadAndCenteredLane_whenTickInDrive_thenReturnsActiveHoldResult() {
         AutoDriver autoDriver = createAutoDriver(
@@ -39,6 +43,7 @@ class AutoDriverTest {
                 () -> assertFalse(result.warningActive()));
     }
 
+    @DisplayName("Lane deviations beyond the threshold are corrected toward the center")
     @ParameterizedTest
     @ValueSource(doubles = {
             LANE_CORRECTION_THRESHOLD_METERS + 0.5,
@@ -56,6 +61,7 @@ class AutoDriverTest {
                 result.steeringAngleDegrees());
     }
 
+    @DisplayName("Lane deviations exactly at the threshold do not trigger correction")
     @ParameterizedTest
     @ValueSource(doubles = {
             LANE_CORRECTION_THRESHOLD_METERS,
@@ -72,6 +78,7 @@ class AutoDriverTest {
         assertEquals(0.0, result.steeringAngleDegrees());
     }
 
+    @DisplayName("An obstacle within the safe distance triggers proportional braking")
     @Test
     void givenObstacleInsideSafeDistance_whenTickInDrive_thenAppliesProportionalBraking() {
         AutoDriver autoDriver = createAutoDriver(
@@ -88,6 +95,7 @@ class AutoDriverTest {
                 () -> assertFalse(result.warningActive()));
     }
 
+    @DisplayName("An obstacle at the emergency boundary triggers full braking and warning")
     @Test
     void givenObstacleAtEmergencyBoundary_whenTickInDrive_thenActivatesEmergencyBrakingAndWarning() {
         AutoDriver autoDriver = createAutoDriver(
@@ -104,6 +112,8 @@ class AutoDriverTest {
                 () -> assertTrue(result.warningActive()));
     }
 
+    @DisplayName("The next centered-lane tick returns steering to the center")
+    @Tag("state")
     @Test
     void givenCorrectedLanePosition_whenNextTickIsCentered_thenReturnsSteeringToCenter() {
         double[] laneOffsetMeters = {1.0};
@@ -121,7 +131,8 @@ class AutoDriverTest {
                 () -> assertEquals(0.0, centeredResult.steeringAngleDegrees()));
     }
 
-    @ParameterizedTest(name = "Safe mode after {0} sensor failure")
+    @DisplayName("Sensor failures produce the complete safe-mode result")
+    @ParameterizedTest(name = "{displayName} [{index}]: Safe mode after {0} sensor failure")
     @EnumSource(FailedSensor.class)
     void givenSensorFailure_whenTickInDrive_thenEntersSafeMode(FailedSensor failedSensor) {
         SpeedSensor speedSensor = failedSensor == FailedSensor.SPEED

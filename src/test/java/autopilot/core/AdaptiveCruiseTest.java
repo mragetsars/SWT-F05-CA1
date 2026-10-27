@@ -1,5 +1,7 @@
 package autopilot.core;
 
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -9,11 +11,13 @@ import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+@DisplayName("Adaptive cruise - safe distance and driving decisions")
 class AdaptiveCruiseTest {
     private static final double TARGET_SPEED_KMH = 120.0;
     private static final double DELTA = 1.0e-9;
 
-    @ParameterizedTest(name = "speed={0} km/h -> safe distance={1} m")
+    @DisplayName("Valid speeds produce a safe distance equal to half their value")
+    @ParameterizedTest(name = "{displayName} [{index}]: speed={0} km/h -> safe distance={1} m")
     @CsvSource({"0.0, 0.0", "81.5, 40.75"})
     void givenValidSpeed_whenSafeDistanceFor_thenReturnsHalfTheSpeed(
             double speedKmh, double expectedDistanceMeters) {
@@ -22,7 +26,9 @@ class AdaptiveCruiseTest {
         assertEquals(expectedDistanceMeters, cruise.safeDistanceFor(speedKmh), DELTA);
     }
 
-    @ParameterizedTest(name = "Reject invalid speed {0}")
+    @DisplayName("Invalid speeds are rejected when calculating safe distance")
+    @Tag("validation")
+    @ParameterizedTest(name = "{displayName} [{index}]: Reject invalid speed {0}")
     @ValueSource(doubles = {-0.1, Double.NaN, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY})
     void givenInvalidSpeed_whenSafeDistanceFor_thenRejectsInput(double speedKmh) {
         AdaptiveCruise cruise = new AdaptiveCruise(TARGET_SPEED_KMH);
@@ -30,7 +36,8 @@ class AdaptiveCruiseTest {
         assertThrows(IllegalArgumentException.class, () -> cruise.safeDistanceFor(speedKmh));
     }
 
-    @ParameterizedTest(name = "target={0}, speed={1}, distance={2} -> {3} {4}")
+    @DisplayName("Clear road acceleration respects the target speed")
+    @ParameterizedTest(name = "{displayName} [{index}]: target={0}, speed={1}, distance={2} -> {3} {4}")
     @CsvSource({
             "120.0, 0.0,   1.0,   ACCELERATE, 5.0",
             "120.0, 119.9, 100.0, ACCELERATE, 0.1",
@@ -48,7 +55,8 @@ class AdaptiveCruiseTest {
         assertDecision(expectedMode, expectedAmount, decision);
     }
 
-    @ParameterizedTest(name = "speed={0}, distance={1} -> {2} {3}")
+    @DisplayName("Distance boundaries select the expected cruise decision")
+    @ParameterizedTest(name = "{displayName} [{index}]: speed={0}, distance={1} -> {2} {3}")
     @CsvSource({
             "0.0,   0.0,    EMERGENCY_BRAKE, 100.0",
             "100.0, 24.999, EMERGENCY_BRAKE, 100.0",
@@ -68,7 +76,9 @@ class AdaptiveCruiseTest {
         assertDecision(expectedMode, expectedAmount, decision);
     }
 
-    @ParameterizedTest(name = "Already braking; distance={0} -> {1} {2}")
+    @DisplayName("Braking remains proportional or in hysteresis until release")
+    @Tag("state")
+    @ParameterizedTest(name = "{displayName} [{index}]: Already braking; distance={0} -> {1} {2}")
     @CsvSource({
             "40.0,   BRAKE, 20.0",
             "50.0,   BRAKE, 10.0",
@@ -78,7 +88,6 @@ class AdaptiveCruiseTest {
     void givenBrakingVehicle_whenDistanceChanges_thenUsesProportionalOrHysteresisBrakeUntilRelease(
             double distanceMeters, AdaptiveCruise.Mode expectedMode, double expectedAmount) {
         AdaptiveCruise cruise = new AdaptiveCruise(TARGET_SPEED_KMH);
-        // خوانش اول فقط سابقهٔ ترمز را می‌سازد؛ تصمیم خوانش دوم موضوع تست است.
         cruise.update(100.0, 49.0);
 
         AdaptiveCruise.Decision decision = cruise.update(100.0, distanceMeters);
@@ -86,6 +95,8 @@ class AdaptiveCruiseTest {
         assertDecision(expectedMode, expectedAmount, decision);
     }
 
+    @DisplayName("Emergency braking takes priority over hysteresis")
+    @Tag("state")
     @Test
     void givenBrakingVehicle_whenDistanceReachesEmergencyBoundary_thenEmergencyOverridesHysteresis() {
         AdaptiveCruise cruise = new AdaptiveCruise(TARGET_SPEED_KMH);
@@ -96,7 +107,9 @@ class AdaptiveCruiseTest {
         assertDecision(AdaptiveCruise.Mode.EMERGENCY_BRAKE, 100.0, decision);
     }
 
-    @ParameterizedTest(name = "Already braking; new speed={0}, distance={1} -> {2} {3}")
+    @DisplayName("Speed changes recalculate safe and release distances")
+    @Tag("state")
+    @ParameterizedTest(name = "{displayName} [{index}]: Already braking; new speed={0}, distance={1} -> {2} {3}")
     @CsvSource({"80.0, 50.0, ACCELERATE, 5.0", "120.0, 65.0, BRAKE, 10.0"})
     void givenBrakingVehicle_whenSpeedChanges_thenRecalculatesSafeAndReleaseDistances(
             double speedKmh, double distanceMeters,
@@ -109,6 +122,8 @@ class AdaptiveCruiseTest {
         assertDecision(expectedMode, expectedAmount, decision);
     }
 
+    @DisplayName("Emergency braking activates hysteresis")
+    @Tag("state")
     @Test
     void givenEmergencyBrakingVehicle_whenDistanceReachesSafeBoundary_thenKeepsHysteresisBrake() {
         AdaptiveCruise cruise = new AdaptiveCruise(TARGET_SPEED_KMH);
@@ -119,6 +134,8 @@ class AdaptiveCruiseTest {
         assertDecision(AdaptiveCruise.Mode.BRAKE, 10.0, decision);
     }
 
+    @DisplayName("Released brakes allow HOLD at the safe-distance boundary")
+    @Tag("state")
     @Test
     void givenReleasedBrakingVehicle_whenDistanceReturnsToSafeBoundary_thenHoldsSpeed() {
         AdaptiveCruise cruise = new AdaptiveCruise(TARGET_SPEED_KMH);
@@ -130,7 +147,9 @@ class AdaptiveCruiseTest {
         assertDecision(AdaptiveCruise.Mode.HOLD, 0.0, decision);
     }
 
-    @ParameterizedTest(name = "Reject speed={0}, distance={1}")
+    @DisplayName("Invalid speed or distance readings are rejected")
+    @Tag("validation")
+    @ParameterizedTest(name = "{displayName} [{index}]: Reject speed={0}, distance={1}")
     @CsvSource({
             "-0.1,     55.0",
             "NaN,      55.0",
@@ -147,7 +166,10 @@ class AdaptiveCruiseTest {
         assertThrows(IllegalArgumentException.class, () -> cruise.update(speedKmh, distanceMeters));
     }
 
-    @ParameterizedTest(name = "Preserve braking after rejected speed={0}, distance={1}")
+    @DisplayName("Rejected readings preserve the braking state")
+    @Tag("state")
+    @Tag("validation")
+    @ParameterizedTest(name = "{displayName} [{index}]: Preserve braking after rejected speed={0}, distance={1}")
     @CsvSource({"NaN, 55.0", "100.0, NaN"})
     void givenBrakingState_whenUpdateRejectsInvalidInput_thenKeepsBrakingStateForNextValidReading(
             double speedKmh, double distanceMeters) {
